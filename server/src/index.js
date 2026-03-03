@@ -61,6 +61,9 @@ const COPY_EXECUTOR_WEBHOOK_URL = process.env.COPY_EXECUTOR_WEBHOOK_URL || '';
 const COPY_EXECUTOR_WEBHOOK_AUTH_TOKEN = process.env.COPY_EXECUTOR_WEBHOOK_AUTH_TOKEN || '';
 const NEWS_API_KEY = process.env.NEWS_API_KEY || '';
 const NEWS_API_URL = process.env.NEWS_API_URL || 'https://newsapi.org/v2/top-headlines';
+const BREAKING_NEWS_MAX_AGE_HOURS = Number.isFinite(Number(process.env.BREAKING_NEWS_MAX_AGE_HOURS))
+  ? Math.max(1, Math.min(168, Number(process.env.BREAKING_NEWS_MAX_AGE_HOURS)))
+  : 48;
 
 const FALLBACK_CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || process.env.CLIENT_URL || 'http://localhost:5173';
 const ADDITIONAL_CLIENT_ORIGINS =
@@ -1181,7 +1184,8 @@ function buildBreakingNewsStories(markets, limit = 16) {
       volume24h: story.volume24h,
       logoUrl: pickFirstAbsoluteUrl(story.logoUrl),
       logoSource: story.logoSource || null,
-      updatedAt: story.updatedAt
+      updatedAt: story.updatedAt,
+      publishedAt: null
     }));
 }
 
@@ -1233,6 +1237,7 @@ function buildHeadlineMappedStories(markets, headlines, limit = 10) {
       logoUrl: logo.url,
       logoSource: logo.source,
       updatedAt: bestMarket?.updatedAt || headline.publishedAt || null,
+      publishedAt: headline.publishedAt || null,
       source: headline.source || 'News'
     });
 
@@ -2545,7 +2550,13 @@ app.get('/api/breaking-news', async (req, res) => {
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(30, requestedLimit)) : 16;
   const now = Date.now();
   if (breakingNewsCache.payload && breakingNewsCache.expiresAt > now) {
-    return res.json(breakingNewsCache.payload);
+    const cachedStories = Array.isArray(breakingNewsCache.payload?.stories)
+      ? breakingNewsCache.payload.stories.slice(0, limit)
+      : [];
+    return res.json({
+      ...breakingNewsCache.payload,
+      stories: cachedStories
+    });
   }
 
   const markets = await fetchMarkets();
@@ -2562,8 +2573,27 @@ app.get('/api/breaking-news', async (req, res) => {
     combined.push(story);
   }
 
+  combined.sort((a, b) => {
+    const aTimestamp = normaliseTimestampMillis(a?.updatedAt || a?.publishedAt);
+    const bTimestamp = normaliseTimestampMillis(b?.updatedAt || b?.publishedAt);
+    if (aTimestamp !== null || bTimestamp !== null) {
+      if (aTimestamp === null) return 1;
+      if (bTimestamp === null) return -1;
+      if (bTimestamp !== aTimestamp) return bTimestamp - aTimestamp;
+    }
+    return Number(b?.volume24h || 0) - Number(a?.volume24h || 0);
+  });
+
+  const maxAgeMs = BREAKING_NEWS_MAX_AGE_HOURS * 60 * 60 * 1000;
+  const cutoff = now - maxAgeMs;
+  const recentStories = combined.filter((story) => {
+    const timestamp = normaliseTimestampMillis(story?.updatedAt || story?.publishedAt);
+    return timestamp !== null && timestamp >= cutoff;
+  });
+  const orderedStories = recentStories.length > 0 ? recentStories : combined;
+
   const payload = {
-    stories: combined.slice(0, limit),
+    stories: orderedStories.slice(0, limit),
     fetchedAt: new Date().toISOString()
   };
   breakingNewsCache.expiresAt = now + 30_000;

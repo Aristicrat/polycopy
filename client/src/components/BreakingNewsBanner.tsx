@@ -8,6 +8,7 @@ interface HeadlineItem {
   url: string;
   chance: number | null;
   logoUrl?: string | null;
+  updatedAt?: string | null;
 }
 
 function parseChanceFromMarket(market: any): number | null {
@@ -42,6 +43,14 @@ function parseChanceFromMarket(market: any): number | null {
   }
 
   return null;
+}
+
+function parseTimestampMillis(value: unknown): number | null {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return null;
+  }
+  const asNumber = typeof value === 'number' ? value : Date.parse(value);
+  return Number.isFinite(asNumber) ? asNumber : null;
 }
 
 export default function BreakingNewsBanner() {
@@ -79,16 +88,20 @@ export default function BreakingNewsBanner() {
           }
 
           const key = question.toLowerCase().replace(/\s+/g, ' ').replace(/[^\w\s%$]/g, '');
-          const existing = uniqueByQuestion.get(key);
-          if (!existing || Number(market?.volume24h || 0) > Number(existing?.volume24h || 0)) {
+          if (!uniqueByQuestion.has(key)) {
             uniqueByQuestion.set(key, market);
           }
         }
 
         const uniqueMarkets = Array.from(uniqueByQuestion.values()).sort((a, b) => {
-          const av = Number(a?.volume24h || 0);
-          const bv = Number(b?.volume24h || 0);
-          return bv - av;
+          const aTs = parseTimestampMillis(a?.updatedAt || a?.publishedAt);
+          const bTs = parseTimestampMillis(b?.updatedAt || b?.publishedAt);
+          if (aTs !== null || bTs !== null) {
+            if (aTs === null) return 1;
+            if (bTs === null) return -1;
+            if (bTs !== aTs) return bTs - aTs;
+          }
+          return Number(b?.volume24h || 0) - Number(a?.volume24h || 0);
         });
 
         const chunkSize = 16;
@@ -109,6 +122,7 @@ export default function BreakingNewsBanner() {
             text: String(m.title || m.question || 'Polymarket market'),
             url: resolvedUrl,
             chance,
+            updatedAt: typeof m?.updatedAt === 'string' ? m.updatedAt : typeof m?.publishedAt === 'string' ? m.publishedAt : null,
             logoUrl:
               (typeof m?.logoUrl === 'string' && /^https?:\/\//.test(m.logoUrl) && m.logoUrl) ||
               (typeof m?.eventImage === 'string' && /^https?:\/\//.test(m.eventImage) && m.eventImage) ||
