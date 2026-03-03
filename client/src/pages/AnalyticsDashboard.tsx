@@ -140,25 +140,60 @@ export default function AnalyticsDashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLeaderboardLoading(true);
-    fetch(`${API_BASE}/analytics/leaderboard`, { credentials: 'include' })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load analytics leaderboard (${res.status})`);
-        return parseJsonResponse<{ snapshot: AnalyticsSnapshot; fetchedAt: number }>(res, 'Analytics leaderboard');
-      })
-      .then((payload) => {
+
+    const loadLeaderboard = async () => {
+      setIsLeaderboardLoading(true);
+      setError(null);
+      try {
+        const analyticsRes = await fetch(`${API_BASE}/analytics/leaderboard`, { credentials: 'include' });
+        if (analyticsRes.ok) {
+          const payload = await parseJsonResponse<{ snapshot: AnalyticsSnapshot; fetchedAt: number }>(
+            analyticsRes,
+            'Analytics leaderboard'
+          );
+          if (!cancelled) {
+            setAnalyticsData(payload);
+            const nextPeriod = payload?.snapshot?.defaultPeriod || 'weekly';
+            setSelectedPeriod(nextPeriod);
+          }
+          return;
+        }
+
+        const leaderboardRes = await fetch(`${API_BASE}/leaderboard`, { credentials: 'include' });
+        if (!leaderboardRes.ok) {
+          throw new Error(`Failed to load analytics leaderboard (${analyticsRes.status}/${leaderboardRes.status})`);
+        }
+        const fallback = await parseJsonResponse<{
+          periods?: Record<string, LeaderboardEntry[]>;
+          labels?: Record<string, string>;
+          defaultPeriod?: string;
+          fetchedAt?: number;
+        }>(leaderboardRes, 'Leaderboard fallback');
+
+        const payload = {
+          snapshot: {
+            periods: fallback?.periods || {},
+            labels: fallback?.labels || {},
+            defaultPeriod: fallback?.defaultPeriod || 'weekly'
+          },
+          fetchedAt: Number.isFinite(Number(fallback?.fetchedAt)) ? Number(fallback?.fetchedAt) : Date.now()
+        };
+
         if (!cancelled) {
           setAnalyticsData(payload);
-          const nextPeriod = payload?.snapshot?.defaultPeriod || 'weekly';
-          setSelectedPeriod(nextPeriod);
+          setSelectedPeriod(payload.snapshot.defaultPeriod || 'weekly');
         }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load analytics data');
-      })
-      .finally(() => {
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load analytics data');
+        }
+      } finally {
         if (!cancelled) setIsLeaderboardLoading(false);
-      });
+      }
+    };
+
+    void loadLeaderboard();
+
     return () => {
       cancelled = true;
     };
@@ -180,7 +215,7 @@ export default function AnalyticsDashboard() {
     let cancelled = false;
     setIsHistoryLoading(true);
 
-    Promise.all(
+    Promise.allSettled(
       topAddresses.map(async (address) => {
         const res = await fetch(`${API_BASE}/analytics/trader/${address}/history`, { credentials: 'include' });
         if (!res.ok) {
@@ -189,21 +224,26 @@ export default function AnalyticsDashboard() {
         return await parseJsonResponse<TraderHistoryPayload>(res, `Trader history ${address}`);
       })
     )
-      .then((payloads) => {
+      .then((results) => {
         if (cancelled) return;
+        const fulfilled = results
+          .filter((result): result is PromiseFulfilledResult<TraderHistoryPayload> => result.status === 'fulfilled')
+          .map((result) => result.value)
+          .filter((payload) => payload && payload.address);
+
+        if (fulfilled.length === 0) {
+          const firstError = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+          setError(firstError?.reason instanceof Error ? firstError.reason.message : 'Failed to load trader history');
+          return;
+        }
+
         setHistoryByAddress((previous) => {
           const next = { ...previous };
-          payloads.forEach((payload) => {
-            if (!payload?.address) return;
+          fulfilled.forEach((payload) => {
             next[payload.address.toLowerCase()] = payload;
           });
           return next;
         });
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load trader history');
-        }
       })
       .finally(() => {
         if (!cancelled) setIsHistoryLoading(false);

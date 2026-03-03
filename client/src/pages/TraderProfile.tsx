@@ -245,12 +245,16 @@ export default function TraderProfile() {
 
     const load = async () => {
       try {
-        const [overviewRes, historyRes] = await Promise.all([
+        const [overviewRes, historyRes, tradesRes] = await Promise.all([
           fetch(`${API_BASE}/users/${address}/overview?period=${period}&limit=500`, {
             signal: controller.signal,
             credentials: 'include'
           }),
           fetch(`${API_BASE}/analytics/trader/${address}/history`, {
+            signal: controller.signal,
+            credentials: 'include'
+          }),
+          fetch(`${API_BASE}/users/${address}/trades?period=${period}&limit=500`, {
             signal: controller.signal,
             credentials: 'include'
           })
@@ -271,9 +275,25 @@ export default function TraderProfile() {
           }
         }
 
+        const overviewTrades = Array.isArray(overviewPayload.trades) ? overviewPayload.trades : [];
+
+        let directTrades: Trade[] = [];
+        if (tradesRes.ok) {
+          try {
+            const tradesPayload = await parseJsonResponse<{ trades?: Trade[] }>(tradesRes, 'Trader trades');
+            directTrades = Array.isArray(tradesPayload?.trades) ? tradesPayload.trades : [];
+          } catch {
+            directTrades = [];
+          }
+        }
+
+        const mergedTrades = (overviewTrades.length > 0 ? overviewTrades : directTrades).slice();
+        if (overviewTrades.length === 0 && mergedTrades.length > 0) {
+          overviewPayload.trades = mergedTrades;
+        }
+
         if (!historyPayload || !Array.isArray(historyPayload.history) || historyPayload.history.length === 0) {
-          const fallbackTrades = Array.isArray(overviewPayload.trades) ? overviewPayload.trades : [];
-          historyPayload = buildHistoryFromTrades(fallbackTrades);
+          historyPayload = buildHistoryFromTrades(mergedTrades);
         }
 
         if (cancelled) return;

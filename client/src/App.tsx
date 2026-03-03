@@ -443,9 +443,7 @@ function HomePage() {
         </div>
 
         <section className="text-center space-y-4 sm:space-y-5 reveal">
-          <p className="inline-flex rounded-full border border-blue-400/30 bg-blue-500/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-blue-200">
-            Polymarket Intelligence
-          </p>
+
           <div className="flex flex-col items-center justify-center gap-4 sm:gap-6 md:flex-row">
             <MetallicLogo size={420} animated />
             <h1 className="max-w-4xl text-xl font-semibold leading-tight text-white sm:text-3xl md:text-4xl">
