@@ -97,6 +97,15 @@ type HistoryPayload = {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
+async function parseJsonResponse<T>(response: Response, context: string): Promise<T> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const bodyPreview = (await response.text()).slice(0, 120);
+    throw new Error(`${context}: expected JSON but received ${contentType || 'unknown'} (${bodyPreview})`);
+  }
+  return (await response.json()) as T;
+}
+
 function normalizeTimestampMs(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'number') {
@@ -145,6 +154,41 @@ function extractTradeMarket(trade: Trade) {
     trade.market_id ||
     'Unknown market';
   return String(market);
+}
+
+function buildHistoryFromTrades(trades: Trade[]): HistoryPayload {
+  const timeline = trades
+    .map((trade) => {
+      const timestamp = getTradeTimestamp(trade);
+      const size = Math.abs(extractTradeSize(trade));
+      const price = Math.abs(extractTradePrice(trade));
+      return {
+        timestamp,
+        notional: size * price
+      };
+    })
+    .filter((entry) => Number.isFinite(entry.timestamp))
+    .sort((a, b) => (a.timestamp as number) - (b.timestamp as number));
+
+  let cumulativeNotional = 0;
+  const history = timeline.map((entry, index) => {
+    cumulativeNotional += Number(entry.notional || 0);
+    return {
+      timestamp: entry.timestamp as number,
+      pnl: null,
+      tradeCount: index + 1,
+      notionalVolume: cumulativeNotional,
+      portfolioValue: null
+    };
+  });
+
+  return {
+    history,
+    deltas: {
+      volume24h: history.length > 0 ? history[history.length - 1].notionalVolume : null,
+      volume7d: history.length > 0 ? history[history.length - 1].notionalVolume : null
+    }
+  };
 }
 
 function formatUsd(value: number | null | undefined, fractionDigits = 2) {
@@ -216,8 +260,21 @@ export default function TraderProfile() {
           throw new Error(`Failed to load overview (${overviewRes.status})`);
         }
 
-        const overviewPayload = (await overviewRes.json()) as OverviewPayload;
-        const historyPayload = historyRes.ok ? ((await historyRes.json()) as HistoryPayload) : null;
+        const overviewPayload = await parseJsonResponse<OverviewPayload>(overviewRes, 'Trader overview');
+
+        let historyPayload: HistoryPayload | null = null;
+        if (historyRes.ok) {
+          try {
+            historyPayload = await parseJsonResponse<HistoryPayload>(historyRes, 'Trader analytics history');
+          } catch {
+            historyPayload = null;
+          }
+        }
+
+        if (!historyPayload || !Array.isArray(historyPayload.history) || historyPayload.history.length === 0) {
+          const fallbackTrades = Array.isArray(overviewPayload.trades) ? overviewPayload.trades : [];
+          historyPayload = buildHistoryFromTrades(fallbackTrades);
+        }
 
         if (cancelled) return;
         setOverview(overviewPayload);

@@ -60,6 +60,17 @@ type TraderInsight = {
   consistency: number;
 };
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+
+async function parseJsonResponse<T>(response: Response, context: string): Promise<T> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const bodyPreview = (await response.text()).slice(0, 120);
+    throw new Error(`${context}: expected JSON but received ${contentType || 'unknown'} (${bodyPreview})`);
+  }
+  return (await response.json()) as T;
+}
+
 function toNumber(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -130,10 +141,10 @@ export default function AnalyticsDashboard() {
   useEffect(() => {
     let cancelled = false;
     setIsLeaderboardLoading(true);
-    fetch('/api/analytics/leaderboard')
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load analytics leaderboard');
-        return res.json();
+    fetch(`${API_BASE}/analytics/leaderboard`, { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to load analytics leaderboard (${res.status})`);
+        return parseJsonResponse<{ snapshot: AnalyticsSnapshot; fetchedAt: number }>(res, 'Analytics leaderboard');
       })
       .then((payload) => {
         if (!cancelled) {
@@ -171,11 +182,11 @@ export default function AnalyticsDashboard() {
 
     Promise.all(
       topAddresses.map(async (address) => {
-        const res = await fetch(`/api/analytics/trader/${address}/history`);
+        const res = await fetch(`${API_BASE}/analytics/trader/${address}/history`, { credentials: 'include' });
         if (!res.ok) {
-          throw new Error(`Failed to load trader history (${address})`);
+          throw new Error(`Failed to load trader history (${address}, ${res.status})`);
         }
-        return (await res.json()) as TraderHistoryPayload;
+        return await parseJsonResponse<TraderHistoryPayload>(res, `Trader history ${address}`);
       })
     )
       .then((payloads) => {
