@@ -33,6 +33,22 @@ type TraderHistoryPayload = {
   };
 };
 
+type BasicTrade = {
+  created_at?: string | number;
+  createdAt?: string | number;
+  timestamp?: string | number;
+  time?: string | number;
+  executedAt?: string | number;
+  updatedAt?: string | number;
+  amount?: string | number;
+  size?: string | number;
+  shares?: string | number;
+  quantity?: string | number;
+  price?: string | number;
+  avgPrice?: string | number;
+  average_price?: string | number;
+};
+
 type LeaderboardEntry = {
   address: string;
   rank?: number;
@@ -107,6 +123,69 @@ function formatDelta(value: number | null) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeTimestampMs(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    const abs = Math.abs(value);
+    if (abs < 1e11) return Math.round(value * 1000);
+    if (abs > 1e14) return Math.round(value / 1000);
+    return Math.round(value);
+  }
+  if (typeof value === 'string') {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) return normalizeTimestampMs(asNumber);
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function toTradeNotional(trade: BasicTrade): number {
+  const size = Number(trade.amount ?? trade.size ?? trade.shares ?? trade.quantity ?? 0);
+  const price = Number(trade.price ?? trade.avgPrice ?? trade.average_price ?? 0);
+  const safeSize = Number.isFinite(size) ? Math.abs(size) : 0;
+  const safePrice = Number.isFinite(price) ? Math.abs(price) : 0;
+  return safeSize * safePrice;
+}
+
+function buildFallbackHistoryPayload(address: string, trades: BasicTrade[]): TraderHistoryPayload {
+  const ordered = trades
+    .map((trade) => ({
+      timestamp: normalizeTimestampMs(trade.created_at ?? trade.createdAt ?? trade.timestamp ?? trade.time ?? trade.executedAt ?? trade.updatedAt),
+      notional: toTradeNotional(trade)
+    }))
+    .filter((entry) => Number.isFinite(entry.timestamp))
+    .sort((a, b) => (a.timestamp as number) - (b.timestamp as number));
+
+  let cumulativeNotional = 0;
+  const history = ordered.map((entry, index) => {
+    cumulativeNotional += Number(entry.notional || 0);
+    return {
+      timestamp: entry.timestamp as number,
+      pnl: null,
+      tradeCount: index + 1,
+      notionalVolume: cumulativeNotional,
+      marketCount: 0,
+      openPositions: 0
+    } as TraderHistoryEntry;
+  });
+
+  return {
+    address,
+    history,
+    latest: history[history.length - 1] || null,
+    deltas: {
+      pnl24h: null,
+      pnl7d: null,
+      volume24h: history.length > 0 ? history[history.length - 1].notionalVolume : null,
+      volume7d: history.length > 0 ? history[history.length - 1].notionalVolume : null,
+      tradeCount24h: history.length > 0 ? history[history.length - 1].tradeCount : null,
+      tradeCount7d: history.length > 0 ? history[history.length - 1].tradeCount : null
+    }
+  };
 }
 
 function computeConsistency(history: TraderHistoryEntry[]) {
@@ -217,11 +296,27 @@ export default function AnalyticsDashboard() {
 
     Promise.allSettled(
       topAddresses.map(async (address) => {
-        const res = await fetch(`${API_BASE}/analytics/trader/${address}/history`, { credentials: 'include' });
-        if (!res.ok) {
-          throw new Error(`Failed to load trader history (${address}, ${res.status})`);
+        try {
+          const historyRes = await fetch(`${API_BASE}/analytics/trader/${address}/history`, { credentials: 'include' });
+          if (historyRes.ok) {
+            const payload = await parseJsonResponse<TraderHistoryPayload>(historyRes, `Trader history ${address}`);
+            if (Array.isArray(payload?.history) && payload.history.length > 0) {
+              return payload;
+            }
+          }
+        } catch {
+          // Fallback below.
         }
-        return await parseJsonResponse<TraderHistoryPayload>(res, `Trader history ${address}`);
+
+        const tradesRes = await fetch(`${API_BASE}/users/${address}/trades?period=${selectedPeriod}&limit=250`, {
+          credentials: 'include'
+        });
+        if (!tradesRes.ok) {
+          throw new Error(`Failed to load trader history (${address})`);
+        }
+        const tradesPayload = await parseJsonResponse<{ trades?: BasicTrade[] }>(tradesRes, `Trader trades ${address}`);
+        const trades = Array.isArray(tradesPayload?.trades) ? tradesPayload.trades : [];
+        return buildFallbackHistoryPayload(address, trades);
       })
     )
       .then((results) => {

@@ -415,9 +415,11 @@ function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#040712] text-slate-100">
-      <div className="pointer-events-none fixed inset-0 z-0 opacity-50">
-        <Beams beamWidth={2.1} beamHeight={25} beamNumber={50} noiseIntensity={0.15} scale={0.27} rotation={39} speed={1.4} />
-      </div>
+      {ENABLE_BEAMS && (
+        <div className="pointer-events-none fixed inset-0 z-0 opacity-45">
+          <Beams beamWidth={1.6} beamHeight={22} beamNumber={26} noiseIntensity={0.1} scale={0.24} rotation={36} speed={1.1} />
+        </div>
+      )}
       {/* Removed or reduced radial gradient overlay to minimize fill behind navbar */}
       <div className="relative z-10 mx-auto max-w-7xl px-3 pb-16 pt-4 space-y-10 sm:px-6 sm:pb-20 sm:pt-8 sm:space-y-14">
         <div className="sticky top-0 z-30 flex flex-col gap-2 rounded-[22px] bg-transparent transition-all duration-300">
