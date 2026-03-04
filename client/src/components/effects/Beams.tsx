@@ -76,7 +76,7 @@ function extendMaterial<T extends THREE.Material = THREE.Material>(
 }
 
 const CanvasWrapper: FC<{ children: ReactNode }> = ({ children }) => (
-  <Canvas dpr={[1, 2]} frameloop="always" className="w-full h-full relative">
+  <Canvas dpr={[1, 2]} frameloop="always" gl={{ alpha: true, antialias: true }} className="w-full h-full relative">
     {children}
   </Canvas>
 );
@@ -233,7 +233,7 @@ const Beams: FC<BeamsProps> = ({
         },
         material: { fog: true },
         uniforms: {
-          diffuse: new THREE.Color(...hexToNormalizedRGB('#000000')),
+          diffuse: new THREE.Color(...hexToNormalizedRGB(lightColor)),
           time: { shared: true, mixed: true, linked: true, value: 0 },
           roughness: 0.3,
           metalness: 0.3,
@@ -243,7 +243,7 @@ const Beams: FC<BeamsProps> = ({
           uScale: scale
         }
       }),
-    [speed, noiseIntensity, scale]
+    [lightColor, speed, noiseIntensity, scale]
   );
 
   return (
@@ -252,8 +252,7 @@ const Beams: FC<BeamsProps> = ({
         <PlaneNoise ref={meshRef} material={beamMaterial} count={beamNumber} width={beamWidth} height={beamHeight} />
         <DirLight color={lightColor} position={[0, 3, 10]} />
       </group>
-      <ambientLight intensity={1} />
-      <color attach="background" args={['#000000']} />
+      <ambientLight intensity={1.6} />
       <PerspectiveCamera makeDefault position={[0, 0, 20]} fov={30} />
     </CanvasWrapper>
   );
