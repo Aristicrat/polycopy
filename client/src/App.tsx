@@ -16,6 +16,7 @@ import MetallicLogoPreviewPage from './pages/MetallicLogoPreviewPage';
 import AnalyticsDashboard from './pages/AnalyticsDashboard';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const ENABLE_BEAMS = String(import.meta.env.VITE_ENABLE_BEAMS ?? 'true').toLowerCase() === 'true';
 const OVERVIEW_PREFETCH_TTL_MS = 1000 * 60 * 3;
 const overviewPrefetchCache = new Map<
   string,
@@ -414,18 +415,11 @@ function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#040712] text-slate-100">
-      <div className="pointer-events-none fixed inset-0 z-0 opacity-70">
-        <Beams
-          beamWidth={1.8}
-          beamHeight={22}
-          beamNumber={30}
-          noiseIntensity={0.14}
-          scale={0.24}
-          rotation={36}
-          speed={1.1}
-          lightColor="#7ec7ff"
-        />
-      </div>
+      {ENABLE_BEAMS && (
+        <div className="pointer-events-none fixed inset-0 z-0 opacity-45">
+          <Beams beamWidth={1.6} beamHeight={22} beamNumber={26} noiseIntensity={0.1} scale={0.24} rotation={36} speed={1.1} />
+        </div>
+      )}
       {/* Removed or reduced radial gradient overlay to minimize fill behind navbar */}
       <div className="relative z-10 mx-auto max-w-7xl px-3 pb-16 pt-4 space-y-10 sm:px-6 sm:pb-20 sm:pt-8 sm:space-y-14">
         <div className="sticky top-0 z-30 flex flex-col gap-2 rounded-[22px] bg-transparent transition-all duration-300">
@@ -574,18 +568,6 @@ function LeaderboardPage() {
 
   return (
     <div className="min-h-screen bg-[#040712] text-slate-100">
-      <div className="pointer-events-none fixed inset-0 z-0 opacity-70">
-        <Beams
-          beamWidth={1.8}
-          beamHeight={22}
-          beamNumber={30}
-          noiseIntensity={0.14}
-          scale={0.24}
-          rotation={36}
-          speed={1.1}
-          lightColor="#7ec7ff"
-        />
-      </div>
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,rgba(49,114,255,0.22),transparent_52%)]" />
       <div className="relative z-10 mx-auto max-w-7xl px-3 pb-16 pt-4 space-y-8 sm:px-6 sm:pb-20 sm:pt-8 sm:space-y-10">
         <div className="sticky top-0 z-30 flex flex-col gap-2 rounded-[22px] bg-transparent transition-all duration-300">
